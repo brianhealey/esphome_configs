@@ -1,0 +1,171 @@
+## Gosund W01 outlet
+
+substitutions:
+  name: outlet1
+  friendly_name: My W01 Outlet
+  current_resistor: '0.00103'
+  voltage_divider: '1650'
+  default_light_on_mode: 'no'
+
+esp8266:
+  board: esp01_1m
+
+esphome:
+  name: ${name}
+  includes:
+    - espsense.h
+  libraries:
+    - "ESPAsyncUDP"
+    
+custom_component:
+- lambda: |-
+    auto sense_device = new ESPSense();
+    auto sense_plug = new ESPSensePlug();
+    
+    sense_plug->set_name("${friendly_name}");
+    sense_plug->set_power_sensor(id(wattage));
+    sense_plug->set_current_sensor(id(current));
+    sense_plug->set_voltage_sensor(id(voltage));
+    
+    sense_device->addPlug(sense_plug);
+    return {sense_device};
+
+
+web_server:
+  port: 80
+  
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api: 
+ota:
+  password: !secret ota_password
+  
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${friendly_name} Hotspot"
+    password: !secret wifi_password
+    
+captive_portal:
+
+binary_sensor:
+  - platform: template
+    id: top_button_relay
+    internal: true
+    on_press:
+      - switch.toggle: top_switch
+    filters:
+      - delayed_off: 100ms
+  - platform: template
+    id: bottom_button_relay
+    internal: true
+    on_press:
+      - switch.toggle: bottom_switch
+    filters:
+      - delayed_off: 100ms
+
+status_led:
+  pin: 
+    number: GPIO2
+    inverted: yes
+    
+light:
+  - platform: monochromatic
+    name: "${friendly_name} Top Button LED"
+    output: top_button_led_output
+    id: top_button_led
+  - platform: monochromatic
+    name: "${friendly_name} Bottom Button LED"
+    output: bottom_button_led_output
+    id: bottom_button_led
+
+output:
+  - platform: esp8266_pwm
+    id: top_button_led_output
+    pin: 
+      number: 0
+      inverted: ${default_light_on_mode}
+  - platform: esp8266_pwm
+    id: bottom_button_led_output
+    pin: 
+      number: 13
+      inverted: ${default_light_on_mode}
+
+switch:
+  - platform: gpio
+    id: top_switch
+    pin: 15
+    name: "${friendly_name} Top Plug"
+    restore_mode: ALWAYS_ON
+    on_turn_on:
+      - output.turn_on: top_button_led_output
+    on_turn_off:
+      - output.turn_off: top_button_led_output
+
+  - platform: gpio
+    id: bottom_switch
+    pin: 14
+    name: "${friendly_name} Bottom Plug"
+    restore_mode: ALWAYS_ON
+    on_turn_on:
+      - light.turn_on: bottom_button_led
+    on_turn_off:
+      - light.turn_off: bottom_button_led
+      
+button:
+  - platform: restart
+    name: "${friendly_name} Restart"
+
+sensor:
+  - platform: adc
+    pin: GPIO17
+    id: gpio17
+    internal: true
+    update_interval: 0.1s
+    filters:
+      - lambda: |-
+          if(x >= 0.40 && x < 0.90){
+            id(top_button_relay).publish_state(!top_button_relay->state);
+          } else if(x >= 0.30 && x < 0.60){
+            id(bottom_button_relay).publish_state(!bottom_button_relay->state);
+          }
+          return{};
+  - platform: hlw8012
+    model: BL0937
+    current_resistor: ${current_resistor}
+    voltage_divider: ${voltage_divider}
+    change_mode_every: 1
+    update_interval: 3s
+    sel_pin:
+      number: 12
+      inverted: true
+    cf_pin: 5
+    cf1_pin: 4
+    current:
+      name: "${friendly_name} Current"
+      accuracy_decimals: 2
+      id: current
+    voltage:
+      name: "${friendly_name} Voltage"
+      accuracy_decimals: 2
+      id: voltage
+    power:
+      name: "${friendly_name} Power"
+      accuracy_decimals: 2
+      id: wattage
+  - platform: total_daily_energy
+    name: "${friendly_name} Total Daily Energy"
+    power_id: wattage
+    filters:
+      - multiply: 0.001 ## convert Wh to kWh
+    unit_of_measurement: kWh

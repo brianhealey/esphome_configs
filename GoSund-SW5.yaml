@@ -1,0 +1,182 @@
+## Gosund SW5 outlet
+substitutions:
+  name: "sw5_lightswitch"
+  friendly_name: "Gosund SW5 Lights"
+  off_wattage: "0"
+  on_wattage: "15"
+  time_zone: "America/Chicago"
+
+esp8266:
+  board: esp01_1m
+
+esphome:
+  name: ${name}
+  includes:
+    - espsense.h
+  libraries:
+    - "ESPAsyncUDP"
+    
+custom_component:
+- lambda: |-
+    auto sense_device = new ESPSense();
+    auto sense_plug = new ESPSensePlug();
+    
+    sense_plug->set_name("${friendly_name}");
+    sense_plug->set_power_sensor(id(wattage));
+    sense_plug->set_relay_sensor(id(relay_14));
+    
+    sense_device->addPlug(sense_plug);
+    return {sense_device};
+
+web_server:
+  port: 80
+
+# Enable Home Assistant API
+api: 
+ota:
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${friendly_name} Hotspot"
+    password: !secret wifi_password
+    
+captive_portal:
+
+# sun:
+#   latitude: 0.0
+#   longitude: 0.0
+#   on_sunset:
+#     - if:
+#         condition:
+#           - switch.is_off: relay_14
+#         then:
+#           - switch.toggle: relay_14
+#           - logger.log: Turning on lights for the night.
+#   on_sunrise:
+#     - if:
+#          condition:
+#            - switch.is_on: relay_14
+#          then:
+#            - switch.toggle: relay_14
+#            - logger.log: Turning off lights for the morning.
+
+
+# Disable serial logging
+logger:
+  baud_rate: 0
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    timezone: ${time_zone}
+
+# Text sensors with general information.
+text_sensor:
+  - platform: version
+    name: "${friendly_name} ESPHome Version"
+  # Expose WiFi information as sensors.
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} IP"
+    ssid:
+      name: "${friendly_name} SSID"
+    bssid:
+      name: "${friendly_name} BSSID"
+#  - platform: sun
+#    name: Automatic Off Time
+#    type: sunrise
+#  - platform: sun
+#    name: Automatic On Time
+#    type: sunset
+
+binary_sensor:
+  - platform: gpio
+    name: "Sensor for Button Presses"
+    internal: yes
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: yes
+    id: switch_button_1
+    on_press:
+      then:
+      - switch.toggle: relay_14
+
+output:
+  - platform: esp8266_pwm
+    id: green_led2_pwm
+    pin: 
+      number: GPIO2
+      inverted: yes
+
+light:
+  - platform: monochromatic
+    output: green_led2_pwm
+    id: led2
+    name: "${friendly_name} Green LED"
+    restore_mode: RESTORE_DEFAULT_OFF
+    
+sensor:
+  - platform: template
+    name: "${friendly_name} Wattage"
+    accuracy_decimals: 2
+    id: wattage
+    lambda: |-
+      if (id(relay_14).state) {
+        return ${on_wattage};
+      } else {
+        return ${off_wattage};
+      }
+    unit_of_measurement: W
+    icon: "mdi:flash-outline"
+    update_interval: 3s
+
+switch:
+  - platform: restart
+    name: "${friendly_name} ESP Restart"
+
+#LED 16 is Red, inverted output
+  - platform: gpio
+    name: "Front Red LED"
+    id: "led16"
+    pin: 
+      number: GPIO16
+      inverted: True
+    icon: "mdi:led-on"
+    restore_mode: RESTORE_DEFAULT_OFF
+    
+  - platform: gpio
+    name: "Relay controlling the actual lights"
+    pin: GPIO14
+    id: relay_14
+    restore_mode: RESTORE_DEFAULT_OFF
+    internal: True
+
+  - platform: template
+    name: "${friendly_name}"
+    internal: False
+    id: ${name}_switch
+    icon: "mdi:light-switch"
+    lambda: |-
+      if (id(relay_14).state) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+    - if:
+        condition:
+          - switch.is_off: relay_14
+        then:
+          - switch.toggle: relay_14
+    turn_off_action:
+    - if:
+        condition:
+          - switch.is_on: relay_14
+        then:
+          - switch.toggle: relay_14

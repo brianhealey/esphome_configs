@@ -1,0 +1,152 @@
+### TGWF15RM Top Greener Outlet
+
+substitutions:
+  name: my_outlet
+  friendly_name: "My Awesome Outlet"
+  current_resistor: "0.0010"
+  voltage_divider: "4800"
+
+esp8266:
+  board: esp8285
+  framework:
+    version: recommended
+
+esphome:
+  name: ${name}
+  includes:
+    - espsense.h
+  libraries:
+    - "ESPAsyncUDP"
+    
+custom_component:
+- lambda: |-
+    auto sense_device = new ESPSense();
+    auto sense_plug = new ESPSensePlug();
+    
+    sense_plug->set_name("${friendly_name}");
+    sense_plug->set_power_sensor(id(wattage));
+    sense_plug->set_current_sensor(id(current));
+    sense_plug->set_voltage_sensor(id(voltage));
+    
+    sense_device->addPlug(sense_plug);
+    return {sense_device};
+
+# Enable logging
+logger:
+  baud_rate: 0
+
+# Enable Home Assistant API
+api:
+
+ota:
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${friendly_name} Hotspot"
+    password: !secret wifi_password
+
+captive_portal:
+
+web_server:
+  port: 80
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+switch:
+  - platform: gpio
+    name: "${friendly_name} Lower Power"
+    pin: 14
+    
+status_led:
+  # Use Green LED as ESPHome's built-in status indicator
+  pin:
+    number: GPIO13
+    inverted: False
+    
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: ${friendly_name} IP Address
+    ssid:
+      name: ${friendly_name} Connected SSID
+    bssid:
+      name: ${friendly_name} Connected BSSID
+    mac_address:
+      name: ${friendly_name} Mac Wifi Address
+
+binary_sensor:
+  - platform: status
+    name: "${friendly_name} Status"
+
+sensor:
+  - platform: adc
+    pin: VCC
+    name: "${friendly_name} VCC Voltage"
+  - platform: wifi_signal
+    name: "${friendly_name} WiFi Signal Sensor"
+    update_interval: 60s
+  - platform: uptime
+    name: Uptime Sensor
+    id: uptime_sensor
+    update_interval: 60s
+  - platform: hlw8012
+    model: BL0937
+    sel_pin:
+      number: 12
+      inverted: true
+    cf_pin: 4
+    cf1_pin: 5
+    current_resistor: ${current_resistor}
+    voltage_divider: ${voltage_divider}
+    current:
+      name: "${friendly_name} Amperage"
+      id: "current"
+      unit_of_measurement: A
+      filters:
+        # - calibrate_linear:
+        #   # Map X (from sensor) to Y (true value)
+        #   # At least 2 data points required
+        #   - 0.0 -> 0.0
+        #   - 1.0 -> 1.0 #load was on
+    voltage:
+      name: "${friendly_name} Voltage"
+      id: "voltage"
+      unit_of_measurement: V
+      filters:
+        # - calibrate_linear:
+        #   # Map X (from sensor) to Y (true value)
+        #   # At least 2 data points required
+        #   - 0.0 -> 0.0
+        #   - 1.0 -> 1.0 #load was on
+    power:
+      id: "wattage"
+      name: "${friendly_name} Wattage"
+      unit_of_measurement: W
+      filters:
+        # Moving average filter to try and reduce a periodic drop of ~1-2W
+        # Unsure of cause, may be a better solution!
+        - sliding_window_moving_average:
+            window_size: 2
+            send_every: 1
+        # - calibrate_linear:
+        #   # Map X (from sensor) to Y (true value)
+        #   # At least 2 data points required
+        #   - 0.0 -> 0.0
+        #   - 1.0 -> 1.0 #load was on
+    change_mode_every: 1
+    update_interval: 3s # Longer interval gives better accuracy
+  - platform: total_daily_energy
+    name: "${friendly_name} Total Daily Energy"
+    power_id: "wattage"
+    filters:
+        # Multiplication factor from W to kW is 0.001
+        - multiply: 0.001
+    unit_of_measurement: kWh
+
